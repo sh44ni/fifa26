@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { getSocket } from "@/lib/socket-client";
 import { VOTING_OPTIONS, type VotingOption } from "@/lib/voting-options";
+import { DRAW_METHOD_OPTIONS, type DrawMethodOption } from "@/lib/draw-method-options";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,10 +21,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import {
   Trophy, LogIn, BarChart3, FileText, Settings, Trash2, Download,
-  ExternalLink, Search, ChevronLeft, ChevronRight, Shield, Users, DollarSign, Copy, Link2, Printer,
+  ExternalLink, Search, ChevronLeft, ChevronRight, Shield, Users, DollarSign, Copy, Link2, Printer, CircleDot,
 } from "lucide-react";
 
 interface OptionResult extends VotingOption { votes: number; }
+interface DrawMethodResult extends DrawMethodOption { votes: number; }
 interface VoteRecord {
   id: number; voterName: string; optionId: number; optionName: string;
   ipAddress: string | null; createdAt: string;
@@ -42,8 +44,12 @@ export default function AdminPage() {
   const [votesTotalPages, setVotesTotalPages] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [liveDisplayActive, setLiveDisplayActive] = useState(false);
+  const [payoutVotingOpen, setPayoutVotingOpen] = useState(true);
+  const [drawVotingOpen, setDrawVotingOpen] = useState(true);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [votingToken, setVotingToken] = useState("");
+  const [drawResults, setDrawResults] = useState<DrawMethodResult[]>([]);
+  const [drawTotalVotes, setDrawTotalVotes] = useState(0);
 
   useEffect(() => {
     fetch("/api/admin/settings")
@@ -90,21 +96,36 @@ export default function AdminPage() {
       if (res.ok) {
         const data = await res.json();
         setLiveDisplayActive(data.liveDisplayActive);
+        setPayoutVotingOpen(data.payoutVotingOpen ?? true);
+        setDrawVotingOpen(data.drawVotingOpen ?? true);
         if (data.votingToken) setVotingToken(data.votingToken);
       }
     } catch (error) { console.error("Fetch settings error:", error); }
   }, []);
 
+  const fetchDrawResults = useCallback(async () => {
+    try {
+      const res = await fetch("/api/draw-results");
+      if (res.ok) {
+        const data = await res.json();
+        setDrawResults(data.results || []); setDrawTotalVotes(data.totalVotes || 0);
+      }
+    } catch (error) { console.error("Fetch draw results error:", error); }
+  }, []);
+
   useEffect(() => {
     if (isLoggedIn) {
-      fetchResults(); fetchVotes(); fetchSettings();
+      fetchResults(); fetchVotes(); fetchSettings(); fetchDrawResults();
       const socket = getSocket();
       socket.on("vote_update", (data: { results: OptionResult[]; totalVotes: number }) => {
         setResults(data.results); setTotalVotes(data.totalVotes); fetchVotes();
       });
-      return () => { socket.off("vote_update"); };
+      socket.on("draw_vote_update", (data: { results: DrawMethodResult[]; totalVotes: number }) => {
+        setDrawResults(data.results); setDrawTotalVotes(data.totalVotes);
+      });
+      return () => { socket.off("vote_update"); socket.off("draw_vote_update"); };
     }
-  }, [isLoggedIn, fetchResults, fetchVotes, fetchSettings]);
+  }, [isLoggedIn, fetchResults, fetchVotes, fetchSettings, fetchDrawResults]);
 
   useEffect(() => { if (isLoggedIn) fetchVotes(); }, [votesPage, searchQuery, isLoggedIn, fetchVotes]);
 
@@ -128,12 +149,36 @@ export default function AdminPage() {
     finally { setSettingsLoading(false); }
   };
 
+  const handleTogglePayout = async (open: boolean) => {
+    setSettingsLoading(true);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payoutVotingOpen: open }),
+      });
+      if (res.ok) { setPayoutVotingOpen(open); toast.success(`Payout voting ${open ? "opened" : "closed"}.`); }
+    } catch { toast.error("Failed to update settings."); }
+    finally { setSettingsLoading(false); }
+  };
+
+  const handleToggleDraw = async (open: boolean) => {
+    setSettingsLoading(true);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ drawVotingOpen: open }),
+      });
+      if (res.ok) { setDrawVotingOpen(open); toast.success(`Draw method voting ${open ? "opened" : "closed"}.`); }
+    } catch { toast.error("Failed to update settings."); }
+    finally { setSettingsLoading(false); }
+  };
+
   const handleResetVotes = async () => {
     try {
       const res = await fetch("/api/admin/reset", { method: "POST" });
       if (res.ok) {
         toast.success("All votes reset. New voting token generated.");
-        fetchResults(); fetchVotes(); fetchSettings();
+        fetchResults(); fetchVotes(); fetchSettings(); fetchDrawResults();
       }
       else { toast.error("Failed to reset votes."); }
     } catch { toast.error("Error resetting votes."); }
@@ -300,6 +345,38 @@ export default function AdminPage() {
                 </Table>
               </CardContent>
             </Card>
+
+            {/* Draw Method Results */}
+            <Card className="bg-[#0e0e14] border-[rgba(239,68,68,0.1)]">
+              <CardHeader><CardTitle className="text-white text-lg flex items-center gap-2"><CircleDot className="w-5 h-5 text-[#ef4444]" /> Draw Method Votes</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {drawResults.map((opt) => {
+                    const pct = drawTotalVotes > 0 ? ((opt.votes / drawTotalVotes) * 100).toFixed(1) : "0.0";
+                    const isLeading = drawTotalVotes > 0 && opt.votes === Math.max(...drawResults.map(r => r.votes)) && opt.votes > 0;
+                    return (
+                      <div key={opt.id} className={`rounded-xl p-4 border ${
+                        isLeading ? "border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.04)]" : "border-[rgba(255,255,255,0.05)] bg-white/[0.02]"
+                      }`}>
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="text-2xl">{opt.emoji}</span>
+                          <div>
+                            <p className={`font-bold ${isLeading ? "text-[#ef4444]" : "text-white"}`}>{opt.name}</p>
+                            <p className="text-xs text-[#555]">{opt.description}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between mt-3">
+                          <span className="text-2xl font-black text-white">{opt.votes}</span>
+                          <span className="text-[#666]">{pct}%</span>
+                          {isLeading && <Badge className="bg-[rgba(239,68,68,0.12)] text-[#ef4444] border-[rgba(239,68,68,0.2)]">Leading</Badge>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-[#444] mt-3 text-center">{drawTotalVotes} total draw method votes</p>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Tab 2: Vote Log */}
@@ -435,6 +512,29 @@ export default function AdminPage() {
               </CardContent>
             </Card>
 
+            {/* Voting Controls */}
+            <Card className="bg-[#0e0e14] border-[rgba(255,215,0,0.1)]">
+              <CardHeader><CardTitle className="text-white text-lg">Voting Controls</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white font-medium">Payout Voting Open</p>
+                    <p className="text-sm text-[#666]">Accept or reject payout structure votes.</p>
+                  </div>
+                  <Switch checked={payoutVotingOpen} onCheckedChange={handleTogglePayout}
+                    disabled={settingsLoading} className="data-[state=checked]:bg-[#FFD700]" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white font-medium">Draw Method Voting Open</p>
+                    <p className="text-sm text-[#666]">Accept or reject draw method votes.</p>
+                  </div>
+                  <Switch checked={drawVotingOpen} onCheckedChange={handleToggleDraw}
+                    disabled={settingsLoading} className="data-[state=checked]:bg-[#ef4444]" />
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Reset */}
             <Card className="bg-[#0e0e14] border-red-900/20">
               <CardHeader><CardTitle className="text-red-400 text-lg">Danger Zone</CardTitle></CardHeader>
@@ -447,7 +547,7 @@ export default function AdminPage() {
                     <AlertDialogHeader>
                       <AlertDialogTitle className="text-white">Are you absolutely sure?</AlertDialogTitle>
                       <AlertDialogDescription className="text-[#888]">
-                        This will permanently delete all <strong className="text-white">{totalVotes}</strong> votes and cannot be undone.
+                        This will permanently delete all <strong className="text-white">{totalVotes}</strong> payout votes and <strong className="text-white">{drawTotalVotes}</strong> draw method votes. This cannot be undone.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

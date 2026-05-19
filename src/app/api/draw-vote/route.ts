@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { VOTING_OPTIONS } from "@/lib/voting-options";
+import { DRAW_METHOD_OPTIONS } from "@/lib/draw-method-options";
 import { getIO } from "@/lib/socket-server";
-
-const MAX_VOTES = 48;
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,15 +14,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid token" }, { status: 403 });
     }
 
-    // Check if payout voting is open
-    if (!settings.payoutVotingOpen) {
-      return NextResponse.json({ error: "Payout voting is currently closed." }, { status: 403 });
-    }
-
-    // Check vote limit
-    const currentCount = await prisma.vote.count();
-    if (currentCount >= MAX_VOTES) {
-      return NextResponse.json({ error: "All 48 votes have been cast. Voting is closed." }, { status: 403 });
+    // Check if draw voting is open
+    if (!settings.drawVotingOpen) {
+      return NextResponse.json({ error: "Draw method voting is currently closed." }, { status: 403 });
     }
 
     // Validate inputs
@@ -32,17 +24,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
-    const option = VOTING_OPTIONS.find((o) => o.id === optionId);
+    const option = DRAW_METHOD_OPTIONS.find((o) => o.id === optionId);
     if (!option) {
       return NextResponse.json({ error: "Invalid option" }, { status: 400 });
     }
 
-    // Get IP address (still store for logging, but no longer block duplicates)
+    // Get IP address
     const forwarded = request.headers.get("x-forwarded-for");
     const ipAddress = forwarded?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
 
-    // Create vote
-    await prisma.vote.create({
+    // Create draw method vote
+    await prisma.drawMethodVote.create({
       data: {
         voterName: voterName.trim(),
         optionId: option.id,
@@ -54,24 +46,24 @@ export async function POST(request: NextRequest) {
     // Emit real-time update
     const io = getIO();
     if (io) {
-      const votes = await prisma.vote.groupBy({
+      const votes = await prisma.drawMethodVote.groupBy({
         by: ["optionId"],
         _count: { optionId: true },
       });
 
-      const results = VOTING_OPTIONS.map((opt) => ({
+      const results = DRAW_METHOD_OPTIONS.map((opt) => ({
         ...opt,
         votes: votes.find((v) => v.optionId === opt.id)?._count.optionId || 0,
       }));
 
       const totalVotes = results.reduce((sum, r) => sum + r.votes, 0);
-      io.emit("vote_update", { results, totalVotes });
-      io.emit("vote_cast", { optionName: option.name });
+      io.emit("draw_vote_update", { results, totalVotes });
+      io.emit("draw_vote_cast", { optionName: option.name });
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Vote error:", error);
+    console.error("Draw vote error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

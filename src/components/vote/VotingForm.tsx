@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { VOTING_OPTIONS, TOTAL_POT } from "@/lib/voting-options";
-import { Trophy, Check, Send, User, ChevronRight } from "lucide-react";
+import { DRAW_METHOD_OPTIONS } from "@/lib/draw-method-options";
+import { Trophy, Check, Send, User, ChevronRight, CircleDot } from "lucide-react";
 
 interface VotingFormProps {
   token: string;
@@ -93,16 +94,24 @@ export function VotingForm({ token }: VotingFormProps) {
   const [name, setName] = useState("");
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  // Phase: "payout" → "draw" → "done"
+  const [phase, setPhase] = useState<"payout" | "draw" | "done">("payout");
+  const [selectedDrawOption, setSelectedDrawOption] = useState<number | null>(null);
+  const [isSubmittingDraw, setIsSubmittingDraw] = useState(false);
 
   useEffect(() => {
-    const hasVoted = localStorage.getItem(`wc2026_voted_${token}`);
-    if (hasVoted) {
-      setIsSubmitted(true);
+    const hasPayoutVoted = localStorage.getItem(`wc2026_voted_${token}`);
+    const hasDrawVoted = localStorage.getItem(`wc2026_draw_voted_${token}`);
+    const savedName = localStorage.getItem(`wc2026_voter_name_${token}`);
+    if (hasPayoutVoted && hasDrawVoted) {
+      setPhase("done");
+    } else if (hasPayoutVoted) {
+      setPhase("draw");
+      if (savedName) setName(savedName);
     }
   }, [token]);
 
-  const handleSubmit = async () => {
+  const handlePayoutSubmit = async () => {
     if (!name.trim()) {
       toast.error("Please enter your name.");
       return;
@@ -134,15 +143,52 @@ export function VotingForm({ token }: VotingFormProps) {
       }
 
       localStorage.setItem(`wc2026_voted_${token}`, "true");
-      setIsSubmitted(true);
+      localStorage.setItem(`wc2026_voter_name_${token}`, name.trim());
+      setPhase("draw");
     } catch {
       toast.error("Network error. Please try again.");
       setIsSubmitting(false);
     }
   };
 
-  /* ── Success state ── */
-  if (isSubmitted) {
+  const handleDrawSubmit = async () => {
+    if (!selectedDrawOption) {
+      toast.error("Please select a draw method.");
+      return;
+    }
+
+    setIsSubmittingDraw(true);
+
+    try {
+      const voterName = name.trim() || localStorage.getItem(`wc2026_voter_name_${token}`) || "Anonymous";
+      const res = await fetch("/api/draw-vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          voterName,
+          optionId: selectedDrawOption,
+          token,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.error || "Something went wrong.");
+        setIsSubmittingDraw(false);
+        return;
+      }
+
+      localStorage.setItem(`wc2026_draw_voted_${token}`, "true");
+      setPhase("done");
+    } catch {
+      toast.error("Network error. Please try again.");
+      setIsSubmittingDraw(false);
+    }
+  };
+
+  /* ── Final success state ── */
+  if (phase === "done") {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 ambient-bg relative overflow-hidden">
         <VoteParticles />
@@ -176,7 +222,7 @@ export function VotingForm({ token }: VotingFormProps) {
             transition={{ delay: 0.4 }}
             className="text-3xl md:text-5xl font-black text-white"
           >
-            Vote Submitted!
+            All Votes Submitted!
           </motion.h2>
           <motion.p
             initial={{ y: 20, opacity: 0 }}
@@ -199,6 +245,148 @@ export function VotingForm({ token }: VotingFormProps) {
     );
   }
 
+  /* ── Draw Method Vote phase ── */
+  if (phase === "draw") {
+    return (
+      <div className="min-h-screen py-6 px-4 ambient-bg relative overflow-hidden">
+        <VoteParticles />
+        <MeshOrbs />
+
+        <div className="max-w-2xl mx-auto space-y-6 relative z-10">
+          {/* ─── Header ─── */}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="text-center space-y-3 py-8"
+          >
+            <motion.div
+              className="flex items-center justify-center gap-2 mb-4"
+              whileHover={{ rotate: [0, -10, 10, -10, 0] }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#ef4444]/20 via-[#ef4444]/10 to-transparent flex items-center justify-center glass-panel border border-[#ef4444]/10">
+                <CircleDot className="w-8 h-8 text-[#ef4444]" />
+              </div>
+            </motion.div>
+            <h1 className="text-3xl md:text-5xl font-black text-white tracking-wide">
+              DRAW METHOD VOTE
+            </h1>
+            <div className="flex items-center justify-center gap-3">
+              <div className="h-px w-12 bg-gradient-to-r from-transparent to-[#ef4444]/30" />
+              <p className="text-[#666] text-sm tracking-[0.3em] uppercase">
+                Choose Your Method
+              </p>
+              <div className="h-px w-12 bg-gradient-to-l from-transparent to-[#ef4444]/30" />
+            </div>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.3 }}
+              className="inline-flex items-center gap-2 glass-panel rounded-full px-5 py-2 mt-2"
+            >
+              <div className="w-2 h-2 rounded-full bg-[#22c55e] animate-pulse" />
+              <span className="text-[#22c55e] font-bold text-sm">Payout vote submitted ✓</span>
+            </motion.div>
+          </motion.div>
+
+          {/* ─── Draw Options ─── */}
+          <div className="space-y-4">
+            {DRAW_METHOD_OPTIONS.map((option, index) => {
+              const isSelected = selectedDrawOption === option.id;
+
+              return (
+                <motion.div
+                  key={option.id}
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15 + index * 0.1, duration: 0.4 }}
+                >
+                  <div
+                    onClick={() => setSelectedDrawOption(option.id)}
+                    className={`tilt-card cursor-pointer rounded-2xl p-6 transition-all duration-300 ${
+                      isSelected
+                        ? "glass-panel-strong ring-1 ring-[#ef4444]/50 shadow-[0_0_30px_rgba(239,68,68,0.1)]"
+                        : "glass-panel hover:border-[rgba(239,68,68,0.2)]"
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      {/* Radio indicator */}
+                      <div className={`mt-1 w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${
+                        isSelected
+                          ? "border-[#ef4444] bg-[#ef4444] scale-110"
+                          : "border-[#333] hover:border-[#555]"
+                      }`}>
+                        <AnimatePresence>
+                          {isSelected && (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              exit={{ scale: 0 }}
+                              transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                            >
+                              <Check className="w-4 h-4 text-white" strokeWidth={3} />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="text-3xl">{option.emoji}</span>
+                          <h3 className={`font-bold text-xl transition-colors ${
+                            isSelected ? "text-[#ef4444]" : "text-white"
+                          }`}>
+                            Option {option.id}: {option.name}
+                          </h3>
+                        </div>
+                        <p className="text-[#888] text-sm leading-relaxed">
+                          {option.description}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          {/* ─── Submit ─── */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="pt-2"
+          >
+            <Button
+              onClick={handleDrawSubmit}
+              disabled={isSubmittingDraw || !selectedDrawOption}
+              className="w-full h-14 text-lg font-black bg-gradient-to-r from-[#ef4444] to-[#dc2626] hover:from-[#f87171] hover:to-[#ef4444] text-white disabled:opacity-20 disabled:cursor-not-allowed rounded-2xl shadow-lg shadow-[#ef4444]/10 hover:shadow-[#ef4444]/20 transition-shadow"
+            >
+              {isSubmittingDraw ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="w-6 h-6 border-2 border-white border-t-transparent rounded-full"
+                />
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Send className="w-5 h-5" />
+                  Submit Draw Method Vote
+                </span>
+              )}
+            </Button>
+          </motion.div>
+
+          <p className="text-center text-xs text-[#333] pb-8">
+            One vote per person. Your vote cannot be changed after submission.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Payout Vote phase (original form) ── */
   return (
     <div className="min-h-screen py-6 px-4 ambient-bg relative overflow-hidden">
       <VoteParticles />
@@ -374,7 +562,7 @@ export function VotingForm({ token }: VotingFormProps) {
           className="pt-2"
         >
           <Button
-            onClick={handleSubmit}
+            onClick={handlePayoutSubmit}
             disabled={isSubmitting || !name.trim() || !selectedOption}
             className="w-full h-14 text-lg font-black gradient-sweep-btn text-[#0a0a0a] disabled:opacity-20 disabled:cursor-not-allowed rounded-2xl shadow-lg shadow-[#FFD700]/10 hover:shadow-[#FFD700]/20 transition-shadow"
           >

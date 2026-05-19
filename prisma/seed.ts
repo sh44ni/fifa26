@@ -18,7 +18,7 @@ const existing = db.prepare("SELECT * FROM AppSettings WHERE id = 1").get() as R
 
 if (!existing) {
   const token = crypto.randomBytes(24).toString("base64url").slice(0, 32);
-  db.prepare("INSERT INTO AppSettings (id, liveDisplayActive, votingToken) VALUES (1, 0, ?)").run(token);
+  db.prepare("INSERT INTO AppSettings (id, liveDisplayActive, votingToken, payoutVotingOpen, drawVotingOpen) VALUES (1, 0, ?, 1, 1)").run(token);
   console.log(`AppSettings created with token: ${token}`);
 } else {
   console.log(`AppSettings already exists. Token: ${existing.votingToken}`);

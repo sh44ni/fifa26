@@ -4,11 +4,16 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { getSocket } from "@/lib/socket-client";
 import { VOTING_OPTIONS, type VotingOption } from "@/lib/voting-options";
-import { Trophy, Zap, Users, Crown, TrendingUp, TrendingDown, Minus, Flame } from "lucide-react";
+import { DRAW_METHOD_OPTIONS, type DrawMethodOption } from "@/lib/draw-method-options";
+import { Trophy, Zap, Users, Crown, TrendingUp, TrendingDown, Minus, Flame, CircleDot } from "lucide-react";
 
 const TOTAL_VOTERS = 48;
 
 interface OptionResult extends VotingOption {
+  votes: number;
+}
+
+interface DrawMethodResult extends DrawMethodOption {
   votes: number;
 }
 
@@ -368,17 +373,22 @@ export default function LivePage() {
   const [floatingVotes, setFloatingVotes] = useState<FloatingVote[]>([]);
   const [hotOptions, setHotOptions] = useState<Set<number>>(new Set());
   const [rankChanges, setRankChanges] = useState<Record<number, number>>({});
+  const [drawResults, setDrawResults] = useState<DrawMethodResult[]>([]);
+  const [drawTotalVotes, setDrawTotalVotes] = useState(0);
   const tickerIdRef = useRef(0);
   const floatIdRef = useRef(0);
   const prevRanksRef = useRef<Record<number, number>>({});
 
   const fetchData = useCallback(async () => {
     try {
-      const [resultsRes, settingsRes] = await Promise.all([fetch("/api/results"), fetch("/api/settings/check")]);
+      const [resultsRes, settingsRes, drawRes] = await Promise.all([
+        fetch("/api/results"), fetch("/api/settings/check"), fetch("/api/draw-results")
+      ]);
       const resultsData = await resultsRes.json();
       setResults(resultsData.results || []);
       setTotalVotes(resultsData.totalVotes || 0);
       if (settingsRes.ok) { const sd = await settingsRes.json(); setIsActive(sd.liveDisplayActive); }
+      if (drawRes.ok) { const dd = await drawRes.json(); setDrawResults(dd.results || []); setDrawTotalVotes(dd.totalVotes || 0); }
     } catch (error) { console.error("Failed to fetch data:", error); }
     finally { setLoading(false); }
   }, []);
@@ -423,8 +433,11 @@ export default function LivePage() {
         setTimeout(() => { setHotOptions((prev) => { const n = new Set(prev); n.delete(option.id); return n; }); }, 5000);
       }
     });
+    socket.on("draw_vote_update", (data: { results: DrawMethodResult[]; totalVotes: number }) => {
+      setDrawResults(data.results); setDrawTotalVotes(data.totalVotes);
+    });
     socket.on("settings_update", (data: { liveDisplayActive: boolean }) => { setIsActive(data.liveDisplayActive); });
-    return () => { socket.off("vote_update"); socket.off("vote_cast"); socket.off("settings_update"); };
+    return () => { socket.off("vote_update"); socket.off("vote_cast"); socket.off("draw_vote_update"); socket.off("settings_update"); };
   }, [fetchData]);
 
   if (loading) {
@@ -527,6 +540,81 @@ export default function LivePage() {
               ))}
             </div>
           </LayoutGroup>
+        </motion.div>
+
+        {/* ─── Draw Method Results ─── */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          className="mb-2 shrink-0"
+        >
+          <div className="flex items-center gap-2 mb-1.5 px-1">
+            <CircleDot className="w-3.5 h-3.5 text-[#ef4444]" />
+            <span className="text-[10px] text-[#888] uppercase tracking-[0.2em] font-bold">Draw Method Vote</span>
+            <span className="text-[10px] text-[#555]">— {drawTotalVotes} votes</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {drawResults.map((opt) => {
+              const pct = drawTotalVotes > 0 ? (opt.votes / drawTotalVotes) * 100 : 0;
+              const isLeading = drawTotalVotes > 0 && opt.votes === Math.max(...drawResults.map(r => r.votes)) && opt.votes > 0;
+              const isTied = drawResults.filter(r => r.votes === opt.votes && r.votes > 0).length > 1;
+              return (
+                <div
+                  key={opt.id}
+                  className={`relative overflow-hidden rounded-2xl border flex items-center gap-4 px-5 py-3 ${
+                    isLeading && !isTied
+                      ? "bg-gradient-to-br from-[#ef4444]/[0.07] via-[#0e0e14]/80 to-[#0e0e14]/90 border-[#ef4444]/25 shadow-[0_0_30px_rgba(239,68,68,0.06)]"
+                      : "bg-[#0e0e14]/70 backdrop-blur-xl border-white/[0.06]"
+                  }`}
+                >
+                  {/* Leading shimmer */}
+                  {isLeading && !isTied && (
+                    <motion.div
+                      className="absolute inset-0 pointer-events-none"
+                      animate={{ opacity: [0, 0.04, 0] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                      style={{ background: "linear-gradient(135deg, transparent 30%, rgba(239,68,68,0.15) 50%, transparent 70%)" }}
+                    />
+                  )}
+                  <span className="text-3xl">{opt.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`font-bold text-sm truncate ${isLeading && !isTied ? "text-[#ef4444]" : "text-white/90"}`}>
+                      {opt.name}
+                    </h4>
+                    <p className="text-[8px] text-[#555] truncate">{opt.description}</p>
+                  </div>
+                  <div className="text-center shrink-0">
+                    <motion.div
+                      key={opt.votes}
+                      initial={{ scale: 1.3, color: "#ef4444" }}
+                      animate={{ scale: 1, color: isLeading && !isTied ? "#ef4444" : "#ffffff" }}
+                      transition={{ duration: 0.5 }}
+                      className="text-2xl font-black tabular-nums leading-none"
+                    >
+                      {opt.votes}
+                    </motion.div>
+                    <p className="text-[8px] text-[#555] uppercase tracking-widest mt-0.5">votes</p>
+                  </div>
+                  <div className="text-center shrink-0 w-12">
+                    <span className="text-sm font-bold tabular-nums" style={{ color: isLeading && !isTied ? "#ef4444" : "#888" }}>
+                      {pct.toFixed(0)}%
+                    </span>
+                  </div>
+                  {isLeading && !isTied && (
+                    <span className="text-[8px] font-bold text-[#ef4444] bg-[#ef4444]/10 px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shrink-0">
+                      <Crown className="w-2.5 h-2.5" /> Leading
+                    </span>
+                  )}
+                  {isTied && opt.votes > 0 && (
+                    <span className="text-[8px] font-bold text-[#f59e0b] bg-[#f59e0b]/10 px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
+                      Tied
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </motion.div>
 
         {/* ─── Ticker ─── */}

@@ -16,8 +16,19 @@ model Vote {
   createdAt  DateTime @default(now())
 }
 
+model DrawMethodVote {
+  id         Int      @id @default(autoincrement())
+  voterName  String
+  optionId   Int
+  optionName String
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+}
+
 model AppSettings {
   id                Int     @id @default(1)
   liveDisplayActive Boolean @default(false)
   votingToken       String  @unique
+  payoutVotingOpen  Boolean @default(true)
+  drawVotingOpen    Boolean @default(true)
 }
