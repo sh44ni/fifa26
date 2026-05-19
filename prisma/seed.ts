@@ -1,8 +1,14 @@
+import "dotenv/config";
 import crypto from "crypto";
 import path from "path";
 import Database from "better-sqlite3";
 
-const dbPath = path.resolve(process.cwd(), "dev.db");
+// Read DATABASE_URL env var, fallback to dev.db
+const dbUrl = process.env.DATABASE_URL ?? "file:./dev.db";
+const dbFile = dbUrl.replace(/^file:/, "");
+const dbPath = path.isAbsolute(dbFile)
+  ? dbFile
+  : path.resolve(process.cwd(), dbFile);
 console.log(`Using database at: ${dbPath}`);
 
 const db = new Database(dbPath);
