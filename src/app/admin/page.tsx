@@ -404,9 +404,9 @@ export default function AdminPage() {
                       className="w-full border-[rgba(255,215,0,0.2)] text-[#FFD700] hover:bg-[rgba(255,215,0,0.08)] rounded-xl">
                       <ExternalLink className="w-4 h-4 mr-2" /> Open Voting Page
                     </Button>
-                    <Button onClick={() => window.open("/api/admin/poster", "_blank")} variant="outline"
+                    <Button onClick={() => { const a = document.createElement("a"); a.href = "/api/admin/poster"; a.download = "wc2026-vote-invite.pdf"; a.click(); }} variant="outline"
                       className="w-full border-[rgba(255,215,0,0.2)] text-[#FFD700] hover:bg-[rgba(255,215,0,0.08)] rounded-xl">
-                      <Printer className="w-4 h-4 mr-2" /> Download A4 Poster (Print to PDF)
+                      <Printer className="w-4 h-4 mr-2" /> Download Invite PDF
                     </Button>
                     <p className="text-xs text-[#444]">Share this link or scan the QR code to vote. Use the poster for printing.</p>
                   </div>
