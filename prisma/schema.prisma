@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Vote {
+  id         Int      @id @default(autoincrement())
+  voterName  String
+  optionId   Int
+  optionName String
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+}
+
+model AppSettings {
+  id                Int     @id @default(1)
+  liveDisplayActive Boolean @default(false)
+  votingToken       String  @unique
+}
